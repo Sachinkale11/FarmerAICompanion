@@ -1,0 +1,40 @@
+# Maven
+target/
+
+# IntelliJ
+.idea/
+*.iml
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Build
+out/
+build/
+
+# Java
+*.class
+
+# Environment
+.env
+.env.*
+
+# Secrets
+application-prod.yml
+
+# Mac
+.AppleDouble
+.LSOverride
