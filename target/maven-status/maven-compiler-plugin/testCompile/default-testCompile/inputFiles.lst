@@ -1,0 +1,7 @@
+C:\Users\sachi\Documents\projects\FarmerAI\src\test\java\com\farmerai\companion\auth\domain\entity\RefreshTokenTest.java
+C:\Users\sachi\Documents\projects\FarmerAI\src\test\java\com\farmerai\companion\auth\domain\entity\UserTest.java
+C:\Users\sachi\Documents\projects\FarmerAI\src\test\java\com\farmerai\companion\auth\domain\service\AuthenticationDomainServiceTest.java
+C:\Users\sachi\Documents\projects\FarmerAI\src\test\java\com\farmerai\companion\auth\domain\valueobject\EmailTest.java
+C:\Users\sachi\Documents\projects\FarmerAI\src\test\java\com\farmerai\companion\auth\domain\valueobject\PasswordTest.java
+C:\Users\sachi\Documents\projects\FarmerAI\src\test\java\com\farmerai\companion\auth\infrastructure\security\JwtProviderTest.java
+C:\Users\sachi\Documents\projects\FarmerAI\src\test\java\com\farmerai\companion\auth\integration\AuthControllerIT.java

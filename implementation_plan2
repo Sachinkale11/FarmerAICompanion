@@ -1,0 +1,320 @@
+# Authentication Module — AI Farmer Companion (v2 Architecture)
+
+This document presents the updated architecture for the Authentication Module, incorporating significant design improvements for a production-grade, microservices-ready modular monolith.
+
+## 1. High-Level Design (HLD)
+
+### 1.1 System Context
+
+The AI Farmer Companion backend follows a Modular Monolith architecture, preparing for an eventual migration to microservices. The Authentication module provides the security boundary for the entire application.
+
+```mermaid
+graph TB
+    subgraph "Mobile Client"
+    FL["Flutter App<br/>(Dio + Riverpod)"]
+    end
+
+    subgraph "Backend — Modular Monolith"
+    API["REST API Layer<br/>/api/v1/auth/*"]
+    SEC["Spring Security Filter Chain"]
+    AUTH["Auth Module (Clean Architecture)"]
+    SHARED["Shared Module (Cross-Cutting)"]
+    DB[("PostgreSQL 17")]
+    end
+
+    FL -->|"HTTPS + JSON"| API
+    API --> SEC
+    SEC --> AUTH
+    AUTH -.->|"Uses"| SHARED
+    AUTH --> DB
+
+    style FL fill:#0553,stroke:#055
+    style SEC fill:#c002,stroke:#c00
+    style AUTH fill:#05a2,stroke:#05a
+    style SHARED fill:#8052,stroke:#805
+    style DB fill:#5502,stroke:#550
+```
+
+---
+
+## 2. Change 1 & 2: `shared` Module Architecture
+
+The `common` module has been renamed to `shared` to align with DDD and enterprise standards. This module encapsulates cross-cutting concerns used by all current and future modules.
+
+### 2.1 Package Structure and Responsibilities
+
+```text
+com.farmerai.companion.shared
+├── config          → Global application configuration (e.g., Jackson, async executors).
+├── exception       → Global `@ControllerAdvice` and standard error mappings.
+├── logging         → MDC tracing, `LoggingInterceptor`, `CorrelationIdFilter`.
+├── response        → Standardized API wrappers (`ApiResponse<T>`, `PagedResponse<T>`).
+├── validation      → Custom Bean Validation constraints and validators.
+└── audit           → JPA auditing, `BaseEntity`, `AuditorAware`.
+```
+
+| Package | Responsibility | Future Microservices Impact |
+|---------|----------------|-----------------------------|
+| `config` | Centralized Spring configuration. | Will be extracted into a shared library (e.g., `companion-starter-web`). |
+| `exception` | Consistent error handling across APIs. | Ensures all microservices return the exact same error format. |
+| `logging` | Distributed tracing preparation. | Correlation IDs will pass seamlessly across service boundaries. |
+| `response` | Unified API envelope structure. | Standardizes contracts across all frontend-backend interactions. |
+| `validation` | Reusable validation logic. | Shared validation rules across bounded contexts. |
+| `audit` | Entity tracking and optimistic locking. | Ensures consistent data governance across decentralized databases. |
+
+---
+
+## 3. Change 3: Production-Grade `shared.response`
+
+To guarantee frontend predictability, **all** APIs will return a consistent JSON envelope.
+
+### 3.1 Generic Design
+
+```json
+{
+   "success": true,
+   "message": "Operation Successful",
+   "data": { ... payload ... },
+   "timestamp": "2026-06-20T12:00:00"
+}
+```
+
+### 3.2 Class Diagram
+
+```mermaid
+classDiagram
+    class ApiResponse~T~ {
+        +boolean success
+        +String message
+        +T data
+        +Instant timestamp
+        +success(T data, String message)$ ApiResponse~T~
+        +error(String message)$ ApiResponse~Void~
+    }
+
+    class PagedResponse~T~ {
+        +int page
+        +int size
+        +long totalElements
+        +int totalPages
+        +boolean hasNext
+        +of(Page~T~ page)$ PagedResponse~T~
+    }
+
+    ApiResponse *-- PagedResponse : data
+```
+
+### 3.3 Responsibilities
+*   **`ApiResponse<T>`**: The standard envelope. `success` dictates if the business operation succeeded. `message` provides human-readable context. `data` holds the actual payload.
+*   **`PagedResponse<T>`**: Standardizes pagination metadata, used inside the `data` field of `ApiResponse` when returning collections.
+
+---
+
+## 4. Change 4: `shared.audit` Design
+
+### 4.1 Inheritance Strategy and Annotations
+
+We will use `MappedSuperclass` for inheritance, allowing JPA to map fields directly to subclass tables without complex join strategies.
+
+```mermaid
+classDiagram
+    class BaseEntity {
+        <<MappedSuperclass>>
+        #UUID id
+        #Instant createdAt
+        #Instant updatedAt
+        #String createdBy
+        #String updatedBy
+        #Long version
+    }
+
+    class UserJpaEntity {
+        -String email
+        -String password
+        -String status
+    }
+
+    class RoleJpaEntity {
+        -String name
+    }
+
+    class FarmerJpaEntity
+    class FarmJpaEntity
+    class CropJpaEntity
+
+    BaseEntity <|-- UserJpaEntity
+    BaseEntity <|-- RoleJpaEntity
+    BaseEntity <|-- FarmerJpaEntity
+    BaseEntity <|-- FarmJpaEntity
+    BaseEntity <|-- CropJpaEntity
+```
+
+### 4.2 Components
+
+1.  **`BaseEntity`**: Annotated with `@MappedSuperclass`, `@EntityListeners(AuditingEntityListener.class)`. Fields use `@Id`, `@GeneratedValue`, `@CreatedDate`, `@LastModifiedDate`, `@CreatedBy`, `@LastModifiedBy`, and `@Version`.
+2.  **`AuditorAwareImpl`**: Implements `AuditorAware<String>`. Extracts the current user's ID/email from the Spring `SecurityContextHolder`.
+3.  **`AuditConfig`**: Annotated with `@EnableJpaAuditing(auditorAwareRef = "auditorAwareImpl")` to activate the listeners.
+
+---
+
+## 5. Change 5: Domain Layer Review
+
+### 5.1 Coding Rules & Purity
+
+The Domain Layer (`com.farmerai.companion.auth.domain`) is the heart of the system.
+
+**Allowed Dependencies:**
+*   Standard Java Library (`java.util.*`, `java.time.*`)
+*   Domain classes (Entities, Value Objects, Domain Exceptions, Repository Interfaces)
+
+**Forbidden Dependencies:**
+*   `org.springframework.*` (No `@Service`, `@Component`, `@Autowired`)
+*   `javax.persistence.*` or `jakarta.persistence.*` (No `@Entity`, `@Column`)
+*   `org.hibernate.*`
+*   `lombok.*` (No `@Data`, `@Builder`. Use manual constructors and getters to ensure careful design).
+
+### 5.2 Rich Domain Model Guidelines
+1.  **Immutability:** Value Objects must be final and immutable.
+2.  **Self-Validation:** Domain entities and value objects must validate their invariants in the constructor. (e.g., throwing `IllegalArgumentException`).
+3.  **Encapsulation:** No public setters on Entities. State changes must happen via descriptive business methods (e.g., `user.suspend()`, not `user.setStatus(SUSPENDED)`).
+4.  **No Anemic Models:** Domain entities should contain business logic, not just hold data for services.
+
+---
+
+## 6. Change 6: Value Object Simplification
+
+**Decision:** Remove `Password` and `HashedPassword` value objects. Keep `Email`, `TokenValue`, and `UserStatus`.
+
+### 6.1 Analysis
+
+**Pros of removing them:**
+*   **Reduced Boilerplate:** Less mapping complexity between layers.
+*   **Pragmatism:** Spring Security's `BCryptPasswordEncoder` already handles password validation/matching safely. Validating raw password strength can be done at the Application or Presentation layer via standard Java Bean Validation (`@Pattern`).
+
+**Cons of removing them:**
+*   **Slight Loss of Type Safety:** Passing a raw `String` password instead of a `Password` object means the compiler can't prevent you from accidentally passing an unhashed string to a method expecting a hash.
+
+### 6.2 Final Recommendation
+**Approve the removal.** The complexity outweighs the benefits. We will use plain `String` for passwords and handle strength validation via `@Valid` DTOs, relying on the application service to coordinate BCrypt hashing before domain entity creation.
+
+---
+
+## 7. Change 7: `infrastructure.security` Refactoring
+
+### 7.1 Updated Package Structure
+
+```text
+infrastructure.security
+├── config
+│   └── SecurityConfig.java               → Filter chain, CORS, CSRF rules
+├── jwt
+│   ├── JwtProvider.java                  → Token generation/parsing
+│   └── JwtAuthenticationFilter.java      → Request interception
+├── adapter
+│   └── PasswordEncoderAdapter.java       → BCrypt implementation
+├── CustomUserDetailsService.java         → Spring Security DB bridge
+└── CustomAuthenticationEntryPoint.java   → 401 JSON responses
+```
+
+### 7.2 Responsibilities & Dependency Diagram
+
+```mermaid
+graph TD
+    SC[config.SecurityConfig] --> JAF[jwt.JwtAuthenticationFilter]
+    SC --> CAEP[CustomAuthenticationEntryPoint]
+    SC --> CUDS[CustomUserDetailsService]
+    JAF --> JP[jwt.JwtProvider]
+    CUDS --> DB[(PostgreSQL)]
+    PEA[adapter.PasswordEncoderAdapter] -.->|Implements| DomainPort
+
+    style SC fill:#0553,stroke:#055
+    style JAF fill:#a052,stroke:#a05
+    style JP fill:#05a2,stroke:#05a
+    style PEA fill:#5502,stroke:#550
+```
+
+---
+
+## 8. Change 8: Future-Proof RefreshToken Design
+
+To support advanced session management (logout from specific device, view active sessions), we will enrich the `RefreshToken` entity.
+
+### 8.1 Updated Entity
+
+```text
+RefreshToken
+├── id: UUID
+├── token: TokenValue
+├── userId: UUID
+├── deviceId: String         (New: Unique hardware/browser ID)
+├── deviceName: String       (New: e.g., "Samsung S24")
+├── platform: String         (New: e.g., "Android")
+├── lastUsedAt: Instant      (New: Updated on every refresh)
+├── expiryDate: Instant
+└── isRevoked: boolean
+```
+
+### 8.2 Database Schema Impact
+
+```sql
+ALTER TABLE refresh_tokens 
+ADD COLUMN device_id VARCHAR(255) NOT NULL,
+ADD COLUMN device_name VARCHAR(255),
+ADD COLUMN platform VARCHAR(50),
+ADD COLUMN last_used_at TIMESTAMP NOT NULL DEFAULT NOW();
+
+CREATE INDEX idx_refresh_tokens_user_device ON refresh_tokens(user_id, device_id);
+```
+
+### 8.3 ER Diagram Changes
+
+```mermaid
+erDiagram
+    USERS ||--o{ REFRESH_TOKENS : "has multiple active sessions"
+
+    REFRESH_TOKENS {
+        uuid id PK
+        varchar(512) token UK
+        uuid user_id FK
+        varchar(255) device_id "NOT NULL (e.g., UUID from mobile)"
+        varchar(255) device_name "(e.g., iPhone 15)"
+        varchar(50) platform "(iOS, Android, Web)"
+        timestamp last_used_at "NOT NULL"
+        timestamp expiry_date "NOT NULL"
+        boolean is_revoked "NOT NULL"
+    }
+```
+
+### 8.4 Sequence Diagram Impact (Login Flow)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant AuthAppService
+    participant RefreshTokenRepo
+
+    Client->>AuthAppService: login(email, password, deviceId, deviceName, platform)
+    AuthAppService->>AuthAppService: Validate Credentials
+    
+    AuthAppService->>RefreshTokenRepo: findByUserIdAndDeviceId()
+    alt Existing Device Session Found
+        AuthAppService->>RefreshTokenRepo: revoke(oldToken)
+    end
+    
+    AuthAppService->>RefreshTokenRepo: save(newRefreshToken with device metadata)
+    AuthAppService-->>Client: AuthResult (Access + Refresh Tokens)
+```
+
+**Impact:**
+1.  **Logout current device:** Simply revoke the token matching the `deviceId` in the request.
+2.  **Logout all devices:** Call `revokeAllByUserId(userId)`.
+3.  **Active sessions UI:** Frontend can query `/api/v1/auth/sessions` to list active devices (using `deviceName`, `platform`, `lastUsedAt`).
+
+---
+
+## User Review Required
+
+> [!WARNING]
+> Please review the structural changes to the `shared` module, the removal of the Password Value Objects, and the new Multi-Device Refresh Token flow. 
+> 
+> Let me know if you approve this updated design plan so I can begin refactoring the implementation!
