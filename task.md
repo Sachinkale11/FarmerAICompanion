@@ -1,0 +1,24 @@
+# Implementation Tasks: Farmer, Farm, and Crop
+
+- `[x]` **Phase 1: Database Schema Migration**
+  - `[x]` Create Flyway migration script for `farmers` table
+  - `[x]` Create Flyway migration script for `farms` table
+  - `[x]` Create Flyway migration script for `crops` table
+- `[x]` **Phase 2: Farmer Module Implementation**
+  - `[x]` Create Domain Entities & Value Objects (Farmer, Address, ContactInfo)
+  - `[x]` Create Domain Repository Interfaces
+  - `[x]` Create Infrastructure JPA Entities & Repositories
+  - `[x]` Create Application Service & DTOs
+  - `[x]` Create REST Controller
+- `[x]` **Phase 3: Farm Module Implementation**
+  - `[x]` Create Domain Entities & Value Objects (Farm, LandArea, GpsCoordinates, SoilType)
+  - `[x]` Create Domain Repository Interfaces
+  - `[x]` Create Infrastructure JPA Entities & Repositories
+  - `[x]` Create Application Service & DTOs
+  - `[x]` Create REST Controller
+- `[x]` **Phase 4: Crop Module Implementation**
+  - `[x]` Create Domain Entities & Value Objects (Crop, CropStatus, CropSeason)
+  - `[x]` Create Domain Repository Interfaces
+  - `[x]` Create Infrastructure JPA Entities & Repositories
+  - `[x]` Create Application Service & DTOs
+  - `[x]` Create REST Controller
